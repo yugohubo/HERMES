@@ -153,8 +153,9 @@ class DocumentExtractor:
             os.makedirs(docs_dir, exist_ok=True)
             saved_file_path = os.path.join(docs_dir, doc_name)
             
-            import shutil
-            shutil.copy2(pdf_path, saved_file_path)
+            if os.path.abspath(pdf_path) != os.path.abspath(saved_file_path):
+                import shutil
+                shutil.copy2(pdf_path, saved_file_path)
         except Exception as e:
             print(f"Error copying document to workspace folder: {e}")
             saved_file_path = pdf_path # Fallback to original path if copy fails

@@ -962,7 +962,7 @@ class HermesMainWindow(QMainWindow):
         # Check if document already exists in SQLite
         exists = False
         try:
-            cursor = self.vector_db.conn.cursor()
+            cursor = self.vdb.conn.cursor()
             cursor.execute("SELECT id FROM chunks WHERE document_name = ? LIMIT 1", (filename,))
             exists = (cursor.fetchone() is not None)
         except Exception as e:
@@ -1014,9 +1014,9 @@ class HermesMainWindow(QMainWindow):
         """Deletes all chunks of a document from SQLite and its nodes/relationships from Neo4j."""
         # 1. Delete chunks from SQLite
         try:
-            cursor = self.vector_db.conn.cursor()
+            cursor = self.vdb.conn.cursor()
             cursor.execute("DELETE FROM chunks WHERE document_name = ?", (doc_name,))
-            self.vector_db.conn.commit()
+            self.vdb.conn.commit()
             print(f"Deleted SQLite chunks for document: {doc_name}")
         except Exception as e:
             print(f"Error deleting SQLite chunks for document {doc_name}: {e}")
