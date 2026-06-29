@@ -473,6 +473,7 @@ class GraphDBManager:
         RETURN d.name AS doc_name, d.type AS doc_type, 
                u.name AS user_name, rel.timestamp AS upload_time,
                p.name AS project_name, c.name AS company_name
+        LIMIT 1
         """
         
         try:
