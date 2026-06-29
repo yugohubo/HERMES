@@ -195,6 +195,9 @@ class DocumentExtractor:
 
         # 4. For each chunk, index & extract
         all_chunk_ids = []
+        concepts_to_add = []
+        relationships_to_add = []
+        
         for i, chunk in enumerate(chunks):
             progress_percent = 15 + int((i / total_chunks) * 80)
             if progress_callback:
@@ -207,7 +210,7 @@ class DocumentExtractor:
             # B. Extract concepts and relations
             graph_data = self.extract_concepts_and_relations(chunk)
             
-            # C. Add extracted concepts to Neo4j
+            # C. Accumulate extracted concepts and document links
             for concept in graph_data.get("concepts", []):
                 concept_name = concept.get("name", "").strip()
                 concept_type = concept.get("type", "Other").strip()
@@ -218,25 +221,25 @@ class DocumentExtractor:
                     concept_type = "Other"
 
                 if concept_name:
-                    self.gdb.add_concept_node(
-                        name=concept_name, 
-                        description=concept_desc, 
-                        doc_id=doc_id, 
-                        chunk_id=chunk_id, 
-                        concept_type=concept_type
-                    )
+                    concepts_to_add.append({
+                        "name": concept_name,
+                        "description": concept_desc,
+                        "concept_type": concept_type,
+                        "doc_id": doc_id,
+                        "chunk_id": chunk_id
+                    })
                     
-                    # Link document to this concept
-                    self.gdb.add_relationship(
-                        source_name=doc_name, 
-                        target_name=concept_name, 
-                        rel_type="DISCUSSES", 
-                        description=f"Discussed in {doc_name}",
-                        source_label="Document",
-                        target_label="Concept"
-                    )
+                    # Accumulate document-to-concept relationship
+                    relationships_to_add.append({
+                        "source_name": doc_name,
+                        "target_name": concept_name,
+                        "rel_type": "DISCUSSES",
+                        "description": f"Discussed in {doc_name}",
+                        "source_label": "Document",
+                        "target_label": "Concept"
+                    })
 
-            # D. Add extracted relationships to Neo4j
+            # D. Accumulate concept relationships
             for relation in graph_data.get("relations", []):
                 source = relation.get("source", "").strip()
                 target = relation.get("target", "").strip()
@@ -244,11 +247,36 @@ class DocumentExtractor:
                 rel_desc = relation.get("description", "").strip()
                 
                 if source and target:
-                    # Ensure both nodes exist first as general Concept nodes
-                    self.gdb.add_concept_node(name=source, description=source, doc_id=doc_id, chunk_id=chunk_id, concept_type="Other")
-                    self.gdb.add_concept_node(name=target, description=target, doc_id=doc_id, chunk_id=chunk_id, concept_type="Other")
-                    # Add relation
-                    self.gdb.add_relationship(source_name=source, target_name=target, rel_type=rel_type, description=rel_desc)
+                    # Ensure both nodes exist first by adding them to concept batch
+                    concepts_to_add.append({
+                        "name": source,
+                        "description": source,
+                        "concept_type": "Other",
+                        "doc_id": doc_id,
+                        "chunk_id": chunk_id
+                    })
+                    concepts_to_add.append({
+                        "name": target,
+                        "description": target,
+                        "concept_type": "Other",
+                        "doc_id": doc_id,
+                        "chunk_id": chunk_id
+                    })
+                    # Accumulate relation
+                    relationships_to_add.append({
+                        "source_name": source,
+                        "target_name": target,
+                        "rel_type": rel_type,
+                        "description": rel_desc,
+                        "source_label": "Concept",
+                        "target_label": "Concept"
+                    })
+
+        # E. Write all concepts and relationships in batch to Neo4j
+        if progress_callback:
+            progress_callback("İlişkiler ve kavramlar veritabanına toplu olarak kaydediliyor...", 95)
+        self.gdb.add_concepts_batch(concepts_to_add)
+        self.gdb.add_relationships_batch(relationships_to_add)
 
         # Update global SystemMetadata node with this latest upload's registry and chunks
         upload_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

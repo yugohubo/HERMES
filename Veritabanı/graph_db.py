@@ -87,6 +87,93 @@ class GraphDBManager:
         except Exception:
             pass
 
+    def add_concepts_batch(self, concepts: list):
+        """Add concept nodes to the graph in bulk using a single Neo4j transaction."""
+        if not concepts:
+            return
+            
+        query = """
+        UNWIND $concepts AS c_data
+        MERGE (c:Concept {id: c_data.id})
+        ON CREATE SET c.name = c_data.name, 
+                      c.description = c_data.description,
+                      c.type = c_data.concept_type,
+                      c.doc_id = c_data.doc_id,
+                      c.chunk_ids = [c_data.chunk_id]
+        ON MATCH SET c.chunk_ids = CASE WHEN NOT c_data.chunk_id IN c.chunk_ids THEN c.chunk_ids + c_data.chunk_id ELSE c.chunk_ids END,
+                     c.description = CASE WHEN c.description = '' OR c.description IS NULL OR c.description = c_data.name THEN c_data.description ELSE c.description END,
+                     c.type = CASE WHEN c.type = 'Other' OR c.type IS NULL THEN c_data.concept_type ELSE c.type END
+        """
+        batch_params = []
+        for c in concepts:
+            name = c.get("name", "").strip()
+            if not name:
+                continue
+            batch_params.append({
+                "id": self.normalize_id(name),
+                "name": name,
+                "description": c.get("description", "").strip(),
+                "concept_type": c.get("concept_type", "Other").strip(),
+                "doc_id": c.get("doc_id", ""),
+                "chunk_id": c.get("chunk_id", "")
+            })
+            
+        if not batch_params:
+            return
+            
+        try:
+            with self.driver.session() as session:
+                session.run(query, concepts=batch_params)
+            
+            # Link similar concepts for each concept name in batch
+            for c in concepts:
+                name = c.get("name", "").strip()
+                if name:
+                    self.link_similar_concepts(name)
+        except Exception as e:
+            print(f"Error in add_concepts_batch: {e}")
+
+    def add_relationships_batch(self, rels: list):
+        """Add relationships in batch, grouped by labels and type to optimize transactions."""
+        if not rels:
+            return
+            
+        # Group relationships by (source_label, target_label, rel_type_clean)
+        groups = {}
+        for r in rels:
+            src_lbl = r.get("source_label", "Concept")
+            tgt_lbl = r.get("target_label", "Concept")
+            rel_type = r.get("rel_type", "RELATES_TO").strip().upper()
+            rel_type_clean = re.sub(r'[^a-zA-Z0-9_]', '_', rel_type)
+            if not rel_type_clean:
+                rel_type_clean = "RELATES_TO"
+                
+            key = (src_lbl, tgt_lbl, rel_type_clean)
+            if key not in groups:
+                groups[key] = []
+                
+            groups[key].append({
+                "source_id": self.normalize_id(r["source_name"]),
+                "target_id": self.normalize_id(r["target_name"]),
+                "description": r.get("description", "")
+            })
+            
+        # Execute batch for each group
+        with self.driver.session() as session:
+            for (src_lbl, tgt_lbl, rel_type), batch in groups.items():
+                query = f"""
+                UNWIND $batch AS r_data
+                MATCH (source:{src_lbl} {{id: r_data.source_id}})
+                MATCH (target:{tgt_lbl} {{id: r_data.target_id}})
+                MERGE (source)-[r:{rel_type}]->(target)
+                ON CREATE SET r.description = r_data.description
+                ON MATCH SET r.description = CASE WHEN r.description = '' OR r.description IS NULL THEN r_data.description ELSE r.description END
+                """
+                try:
+                    session.run(query, batch=batch)
+                except Exception as e:
+                    print(f"Error in add_relationships_batch for {src_lbl}->{tgt_lbl} ({rel_type}): {e}")
+
     def get_neighborhood_chunk_ids(self, concept_ids: list) -> list:
         """Retrieve chunk IDs of the matching concepts and their 1-hop neighbor concepts in the graph."""
         if not concept_ids:

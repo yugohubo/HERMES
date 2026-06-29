@@ -3,6 +3,7 @@ import hashlib
 import sqlite3
 import json
 import math
+import numpy as np
 import ollama
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hermes_vector.db")
@@ -87,41 +88,75 @@ class VectorDBManager:
         return dot_product / (norm_v1 * norm_v2)
 
     def query_vector(self, query_text: str, n_results: int = 5):
-        """Query SQLite database and rank results using cosine similarity."""
-        query_embedding = self.get_embedding(query_text)
+        """Query SQLite database and rank results using NumPy vectorized cosine similarity."""
+        query_embedding = np.array(self.get_embedding(query_text), dtype=np.float32)
+        query_norm = np.linalg.norm(query_embedding)
         
         cursor = self.conn.cursor()
         cursor.execute("SELECT id, document_id, chunk_index, document_name, text, embedding FROM chunks")
         rows = cursor.fetchall()
         
-        results = []
+        if not rows:
+            return []
+            
+        chunk_ids = []
+        metadata_list = []
+        texts = []
+        embeddings = []
+        
         for row in rows:
             chunk_id, doc_id, chunk_idx, doc_name, text, embedding_json = row
             try:
                 embedding = json.loads(embedding_json)
-                similarity = self.cosine_similarity(query_embedding, embedding)
-                
-                results.append({
-                    "id": chunk_id,
-                    "text": text,
-                    "metadata": {
-                        "document_id": doc_id,
-                        "chunk_index": chunk_idx,
-                        "document_name": doc_name,
-                        "length": len(text)
-                    },
-                    "similarity": similarity
+                chunk_ids.append(chunk_id)
+                texts.append(text)
+                metadata_list.append({
+                    "document_id": doc_id,
+                    "chunk_index": chunk_idx,
+                    "document_name": doc_name,
+                    "length": len(text)
                 })
+                embeddings.append(embedding)
             except Exception as e:
                 print(f"Error parsing embedding for chunk {chunk_id}: {e}")
                 
+        if not embeddings:
+            return []
+            
+        # Convert list of vectors into a 2D numpy matrix: shape (N, Dimensions)
+        embeddings_matrix = np.array(embeddings, dtype=np.float32)
+        
+        # Calculate norms of all database embeddings at once
+        embeddings_norms = np.linalg.norm(embeddings_matrix, axis=1)
+        
+        # Prevent division by zero
+        embeddings_norms[embeddings_norms == 0] = 1e-10
+        if query_norm == 0:
+            query_norm = 1e-10
+            
+        # Compute dot products between query vector and all database embeddings at once
+        dot_products = np.dot(embeddings_matrix, query_embedding)
+        
+        # Calculate cosine similarities in a single vector operation
+        similarities = dot_products / (embeddings_norms * query_norm)
+        
+        # Package and compile results
+        results = []
+        for i in range(len(chunk_ids)):
+            results.append({
+                "id": chunk_ids[i],
+                "text": texts[i],
+                "metadata": metadata_list[i],
+                "similarity": float(similarities[i])
+            })
+            
         # Sort by similarity descending
         results.sort(key=lambda x: x["similarity"], reverse=True)
         
         # Take top N
         top_results = results[:n_results]
         
-        # Map similarity to distance (for interface compatibility if needed)
+        # Map similarity to distance for interface compatibility
         for r in top_results:
             r["distance"] = 1.0 - r["similarity"]
             
