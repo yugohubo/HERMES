@@ -194,6 +194,7 @@ class DocumentExtractor:
             raise ValueError("Metin boş veya çok kısa, parçalanamadı.")
 
         # 4. For each chunk, index & extract
+        all_chunk_ids = []
         for i, chunk in enumerate(chunks):
             progress_percent = 15 + int((i / total_chunks) * 80)
             if progress_callback:
@@ -201,6 +202,7 @@ class DocumentExtractor:
 
             # A. Add to SQLite
             chunk_id = self.vdb.add_chunk(doc_id=doc_id, chunk_index=i, text=chunk, doc_name=doc_name)
+            all_chunk_ids.append(chunk_id)
 
             # B. Extract concepts and relations
             graph_data = self.extract_concepts_and_relations(chunk)
@@ -247,6 +249,18 @@ class DocumentExtractor:
                     self.gdb.add_concept_node(name=target, description=target, doc_id=doc_id, chunk_id=chunk_id, concept_type="Other")
                     # Add relation
                     self.gdb.add_relationship(source_name=source, target_name=target, rel_type=rel_type, description=rel_desc)
+
+        # Update global SystemMetadata node with this latest upload's registry and chunks
+        upload_time_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.gdb.update_system_metadata(
+            doc_id=doc_id,
+            doc_name=doc_name,
+            user_name=user_name,
+            project_name=project_name,
+            company_name=company_name,
+            upload_time=upload_time_str,
+            chunk_ids=all_chunk_ids
+        )
 
         if progress_callback:
             progress_callback("Dizin oluşturma tamamlandı!", 100)

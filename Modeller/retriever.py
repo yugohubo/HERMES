@@ -86,14 +86,14 @@ class HybridRetriever:
     def retrieve(self, query: str, top_k_vector: int = 4, top_k_graph: int = 4, chat_history: list = None) -> dict:
         """
         Runs the Two-Pass hybrid retrieval:
-        1. Checks Router: If it's a summary query, returns the system graph summary.
+        1. Checks Router: If it's a summary or latest query, handles routing.
         2. Pass 1 (Graph): Extract query keywords, find matching concepts, retrieve their chunk IDs.
         3. Pass 2 (Vector): Fetch chunks corresponding to those chunk IDs.
         4. Pass 3 (Vector Semantic Search): Query ChromaDB for top_k_vector semantic matches.
         5. Merge and prioritize chunks.
         6. Gather relationship details from the Graph DB to append as structural context.
         """
-        # 1. ROUTER: Check if query is an overview/summary query
+        # Check if query is an overview/summary query
         if self.is_summary_query(query):
             graph_summary = self.gdb.get_system_summary()
             return {
@@ -122,7 +122,7 @@ class HybridRetriever:
         for concept in graph_concepts:
             label = concept.get("label", "Concept")
             c_id = concept["id"]
-            if label == "Concept":
+            if label in ["Concept", "SystemMetadata"]:
                 concept_ids.append(c_id)
                 concepts_metadata.append(f"- {concept['name']}: {concept['description']}")
             elif label == "Document":

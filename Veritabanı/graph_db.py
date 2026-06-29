@@ -93,9 +93,10 @@ class GraphDBManager:
             return []
             
         query = """
-        MATCH (c:Concept)
-        WHERE c.id IN $concept_ids
-        OPTIONAL MATCH (c)-[r]-(neighbor:Concept)
+        MATCH (c)
+        WHERE (c:Concept OR c:SystemMetadata) AND c.id IN $concept_ids
+        OPTIONAL MATCH (c)-[r]-(neighbor)
+        WHERE neighbor:Concept OR neighbor:SystemMetadata
         RETURN c.chunk_ids AS direct_chunks, neighbor.chunk_ids AS neighbor_chunks
         """
         
@@ -156,6 +157,28 @@ class GraphDBManager:
                         company_name=company_name, c_id=c_id,
                         file_path=file_path)
 
+    def update_system_metadata(self, doc_id: str, doc_name: str, user_name: str, project_name: str, company_name: str, upload_time: str, chunk_ids: list):
+        """Update the global SystemMetadata node with the latest upload details."""
+        query = """
+        MERGE (m:SystemMetadata {id: "global_metadata"})
+        SET m.name = "En Son Yüklenen Veri (Latest Uploaded Data)",
+            m.description = "Sistemdeki en son yüklenen dosya: " + $doc_name + ". Yükleyen: " + $user_name + ", Zaman: " + $upload_time + ", Proje: " + $project_name + ", Şirket: " + $company_name,
+            m.latest_doc_id = $doc_id,
+            m.latest_doc_name = $doc_name,
+            m.latest_uploader = $user_name,
+            m.latest_upload_time = $upload_time,
+            m.latest_project = $project_name,
+            m.latest_company = $company_name,
+            m.chunk_ids = $chunk_ids
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(query, doc_id=doc_id, doc_name=doc_name, user_name=user_name, 
+                            project_name=project_name, company_name=company_name, 
+                            upload_time=upload_time, chunk_ids=chunk_ids)
+        except Exception as e:
+            print(f"Error updating system metadata: {e}")
+
     def add_relationship(self, source_name: str, target_name: str, rel_type: str, description: str, source_label: str = "Concept", target_label: str = "Concept"):
         """Add a relationship between two nodes with specified labels."""
         source_id = self.normalize_id(source_name)
@@ -165,11 +188,11 @@ class GraphDBManager:
         rel_type_clean = re.sub(r'[^a-zA-Z0-9_]', '_', rel_type.upper().strip())
         if not rel_type_clean:
             rel_type_clean = "RELATES_TO"
-
+ 
         # Safe labels
         lbl_src = "Concept" if source_label not in ["Concept", "Document", "User", "Project", "Company"] else source_label
         lbl_tgt = "Concept" if target_label not in ["Concept", "Document", "User", "Project", "Company"] else target_label
-
+ 
         query = f"""
         MATCH (source:{lbl_src} {{id: $source_id}})
         MATCH (target:{lbl_tgt} {{id: $target_id}})
@@ -184,7 +207,7 @@ class GraphDBManager:
 
     def search_nodes_by_keywords(self, keywords: list) -> list:
         """
-        Search concepts or documents matching keywords and return their associated chunk IDs.
+        Search concepts, documents, or metadata matching keywords and return their associated chunk IDs.
         """
         if not keywords:
             return []
@@ -192,13 +215,13 @@ class GraphDBManager:
         query = """
         UNWIND $keywords AS keyword
         MATCH (c)
-        WHERE (c:Concept OR c:Document OR c:Project OR c:User) AND (
+        WHERE (c:Concept OR c:Document OR c:Project OR c:User OR c:SystemMetadata) AND (
            toLower(c.name) CONTAINS toLower(keyword) 
-           OR (c:Concept AND toLower(c.description) CONTAINS toLower(keyword))
+           OR ((c:Concept OR c:SystemMetadata) AND toLower(c.description) CONTAINS toLower(keyword))
         )
         RETURN DISTINCT labels(c)[0] AS label, c.id AS id, c.name AS name, 
-                        CASE WHEN c:Concept THEN c.description ELSE '' END AS description,
-                        CASE WHEN c:Concept THEN c.chunk_ids ELSE [] END AS chunk_ids
+                        CASE WHEN c:Concept OR c:SystemMetadata THEN c.description ELSE '' END AS description,
+                        CASE WHEN c:Concept OR c:SystemMetadata THEN c.chunk_ids ELSE [] END AS chunk_ids
         """
         
         results = []
