@@ -1,0 +1,32 @@
+# Python cache and byte-code
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases and Local Storage
+Veritabanı/chroma_db/
+Veritabanı/hermes_vector.db
+Veritabanı/*.db
+Veritabanı/*.sqlite
+
+# User uploaded files
+Documents/
+
+# Unrelated and nested projects
+Information Solver/
+Information Solver
+
+# User-specific configurations
+config.json
+
+# PyInstaller builds and specs
+build/
+dist/
+*.spec
+
+# IDE settings
+.idea/
+.vscode/
+
+# Local text notes and summaries
+özet.txt
