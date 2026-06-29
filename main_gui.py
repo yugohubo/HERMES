@@ -957,11 +957,39 @@ class HermesMainWindow(QMainWindow):
         if not file_path:
             return
 
+        filename = os.path.basename(file_path)
+
+        # Check if document already exists in SQLite
+        exists = False
+        try:
+            cursor = self.vector_db.conn.cursor()
+            cursor.execute("SELECT id FROM chunks WHERE document_name = ? LIMIT 1", (filename,))
+            exists = (cursor.fetchone() is not None)
+        except Exception as e:
+            print("Error checking duplicate document:", e)
+
+        if exists:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Icon.Question)
+            msg_box.setWindowTitle("Mükerrer Dosya")
+            msg_box.setText(f"'{filename}' isimli dosya sistemde zaten yüklü.")
+            msg_box.setInformativeText("Bu dosyanın üzerine yazmak (eski kopyayı silip yenisini yüklemek) ister misiniz?")
+            
+            overwrite_btn = msg_box.addButton("Üzerine Yaz", QMessageBox.ButtonRole.YesRole)
+            cancel_btn = msg_box.addButton("İptal Et", QMessageBox.ButtonRole.NoRole)
+            msg_box.setDefaultButton(cancel_btn)
+            
+            msg_box.exec()
+            
+            if msg_box.clickedButton() == cancel_btn:
+                return
+            else:
+                self.delete_document_data(filename)
+
         last_user = getattr(self, "last_meta_user", "System")
         last_project = getattr(self, "last_meta_project", "Default Project")
         last_company = getattr(self, "last_meta_company", "Default Company")
 
-        filename = os.path.basename(file_path)
         dialog = DocumentMetadataDialog(filename, last_user, last_project, last_company, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -981,6 +1009,28 @@ class HermesMainWindow(QMainWindow):
         self.ingest_worker.finished.connect(self.on_ingest_finished)
         self.ingest_worker.error.connect(self.on_ingest_error)
         self.ingest_worker.start()
+
+    def delete_document_data(self, doc_name: str):
+        """Deletes all chunks of a document from SQLite and its nodes/relationships from Neo4j."""
+        # 1. Delete chunks from SQLite
+        try:
+            cursor = self.vector_db.conn.cursor()
+            cursor.execute("DELETE FROM chunks WHERE document_name = ?", (doc_name,))
+            self.vector_db.conn.commit()
+            print(f"Deleted SQLite chunks for document: {doc_name}")
+        except Exception as e:
+            print(f"Error deleting SQLite chunks for document {doc_name}: {e}")
+
+        # 2. Delete nodes and clean orphans from Neo4j
+        query_delete_doc = "MATCH (d:Document {name: $doc_name}) DETACH DELETE d"
+        query_delete_orphans = "MATCH (c:Concept) WHERE NOT (c)-[]-() DELETE c"
+        try:
+            with self.graph_db.driver.session() as session:
+                session.run(query_delete_doc, doc_name=doc_name)
+                session.run(query_delete_orphans)
+            print(f"Deleted Neo4j nodes and clean orphans for document: {doc_name}")
+        except Exception as e:
+            print(f"Error deleting Neo4j nodes for document {doc_name}: {e}")
 
     def on_ingest_progress(self, status, pct):
         self.lbl_progress.setText(f"<span style='font-size: 11px; color: #a1a1aa; font-style: italic;'>[%{pct}] {status}</span>")
