@@ -959,14 +959,28 @@ class HermesMainWindow(QMainWindow):
 
         filename = os.path.basename(file_path)
 
-        # Check if document already exists in SQLite
+        # Check if document already exists in SQLite or Neo4j
         exists = False
+        print(f"[DEBUG] Checking duplicates for filename: '{filename}'")
+        
+        # A. Check SQLite
         try:
             cursor = self.vdb.conn.cursor()
             cursor.execute("SELECT id FROM chunks WHERE document_name = ? LIMIT 1", (filename,))
             exists = (cursor.fetchone() is not None)
+            print(f"[DEBUG] Duplicate exists in SQLite: {exists}")
         except Exception as e:
-            print("Error checking duplicate document:", e)
+            print("[DEBUG] Error checking duplicate document in SQLite:", e)
+
+        # B. Check Neo4j as a robust fallback
+        if not exists:
+            try:
+                with self.graph_db.driver.session() as session:
+                    res = session.run("MATCH (d:Document {name: $name}) RETURN d.id AS id LIMIT 1", name=filename)
+                    exists = (res.single() is not None)
+                print(f"[DEBUG] Duplicate exists in Neo4j: {exists}")
+            except Exception as e:
+                print("[DEBUG] Error checking duplicate document in Neo4j:", e)
 
         if exists:
             msg_box = QMessageBox(self)
