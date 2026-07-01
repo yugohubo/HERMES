@@ -1,7 +1,7 @@
 # 🧠 HERMES: Hybrid Graph-Vector RAG System
 > **Proof of Concept (POC) - State-of-the-Art Cognitive RAG & Mind Map Visualizer**
 
-*Projenin Tanıtımı için:* https://www.youtube.com/watch?v=QxzEzFsMGpo&t=57s
+*Projenin Tanıtımı için:* https://www.youtube.com/watch?v=QxzEzFsMGpo&t
 
 
 HERMES, geleneksel RAG (Retrieval-Augmented Generation) sistemlerinin yapısal veri ilişkilerini ve bağlamsal köprüleri kuramama sorununu çözen, **Vektör Arama (SQLite)** ile **Bilgi Grafı (Neo4j)** teknolojilerini birleştiren yeni nesil bir **Hibrit RAG ve Zihin Haritası Görselleştirme** platformudur.
